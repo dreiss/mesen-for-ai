@@ -60,6 +60,7 @@ cat > "$MESEN_CONFIG_HOME/settings.json" <<JSON
   },
   "Snes": {
     "DisableFrameSkipping": true,
+    "Port1": { "Type": "SnesController" },
     "RamPowerOnState": 1,
     "EnableRandomPowerOnState": false
   },
