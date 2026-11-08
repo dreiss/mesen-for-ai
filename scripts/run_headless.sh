@@ -59,6 +59,7 @@ cat > "$MESEN_CONFIG_HOME/settings.json" <<JSON
     }
   },
   "Snes": {
+    "DisableFrameSkipping": true,
     "RamPowerOnState": 1,
     "EnableRandomPowerOnState": false
   },
