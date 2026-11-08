@@ -855,6 +855,112 @@ function commands.listTraces()
   return { traces = out }
 end
 
+-- Save states. Mesen only allows emu.createSavestate/emu.loadSavestate inside
+-- an exec memory callback for the main CPU. A request made while held at a
+-- frame boundary is deferred: a temporary exec callback runs the operation at
+-- the next instruction and then holds there until the next runFrames. A
+-- request made while already held inside such a callback runs immediately.
+-- The bridge frame counter is stored next to the state ("<path>.json") and
+-- restored on load.
+local pending_state_ops = {}
+local state_exec_ref = nil
+local state_exec_retire = false
+
+local function is_savestate_context_error(err)
+  return tostring(err):find("must be called inside an exec memory operation callback", 1, true) ~= nil
+end
+
+local function do_state_op(op)
+  if op.kind == "save" then
+    local data = emu.createSavestate()
+    local file = assert(io.open(op.path, "wb"))
+    file:write(data)
+    file:close()
+    local meta = assert(io.open(op.path .. ".json", "w"))
+    meta:write(json.encode({ frame = frame_count }), "\n")
+    meta:close()
+    return { path = op.path, bytes = #data, frame = frame_count }
+  end
+  local file = assert(io.open(op.path, "rb"))
+  local data = file:read("a")
+  file:close()
+  if not emu.loadSavestate(data) then
+    error("Mesen rejected the save state: " .. op.path)
+  end
+  local meta = io.open(op.path .. ".json", "r")
+  if meta then
+    local ok, decoded = pcall(json.decode, meta:read("a"))
+    meta:close()
+    if ok and type(decoded) == "table" and decoded.frame then
+      frame_count = decoded.frame
+    end
+  end
+  return { path = op.path, bytes = #data, frame = frame_count }
+end
+
+local function state_exec_callback()
+  if #pending_state_ops == 0 then
+    return
+  end
+  local ops = pending_state_ops
+  pending_state_ops = {}
+  -- Removing a callback from inside itself is avoided; retire it at the next
+  -- frame end instead.
+  state_exec_retire = true
+  for _, op in ipairs(ops) do
+    local ok, result = pcall(do_state_op, op)
+    if ok then
+      send_response(op.client, { id = op.id, result = result })
+    else
+      send_response(op.client, { id = op.id, error = { code = "command_error", message = tostring(result) } })
+    end
+  end
+  hold_at_boundary = true
+  while hold_at_boundary do
+    pump_socket(0.05)
+  end
+end
+
+local function retire_state_callback()
+  if state_exec_ref ~= nil and state_exec_retire and #pending_state_ops == 0 then
+    emu.removeMemoryCallback(state_exec_ref, emu.callbackType.exec, 0, 0xFFFFFF)
+    state_exec_ref = nil
+    state_exec_retire = false
+  end
+end
+
+local function state_command(kind, args, request_context)
+  args = args or {}
+  local op = {
+    kind = kind,
+    path = assert(args.path, "path is required"),
+    client = request_context.client,
+    id = request_context.id,
+  }
+  local ok, result = pcall(do_state_op, op)
+  if ok then
+    return result
+  end
+  if not is_savestate_context_error(result) then
+    error(result, 0)
+  end
+  pending_state_ops[#pending_state_ops + 1] = op
+  state_exec_retire = false
+  if state_exec_ref == nil then
+    state_exec_ref = emu.addMemoryCallback(state_exec_callback, emu.callbackType.exec, 0, 0xFFFFFF)
+  end
+  hold_at_boundary = false
+  return pending_marker
+end
+
+function commands.saveState(args, request_context)
+  return state_command("save", args, request_context)
+end
+
+function commands.loadState(args, request_context)
+  return state_command("load", args, request_context)
+end
+
 function commands.shutdown()
   hold_at_boundary = false
   emu.stop(0)
@@ -1002,6 +1108,7 @@ end, emu.eventType.startFrame)
 
 emu.addEventCallback(function()
   frame_count = frame_count + 1
+  retire_state_callback()
   local completed = process_pending()
   pump_socket()
   if completed then

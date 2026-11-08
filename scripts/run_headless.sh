@@ -55,7 +55,7 @@ cat > "$MESEN_CONFIG_HOME/settings.json" <<JSON
     "ScriptWindow": {
       "AllowIoOsAccess": true,
       "AllowNetworkAccess": true,
-      "ScriptTimeout": 60
+      "ScriptTimeout": ${MESEN_SCRIPT_TIMEOUT:-86400}
     }
   },
   "Snes": {
@@ -90,6 +90,10 @@ JSON
 
 export HOME="$SESSION_HOME"
 export DOTNET_ROLL_FORWARD="${DOTNET_ROLL_FORWARD:-Major}"
+# Without this, .NET loads ICU, which pulls in the system libstdc++; that
+# clashes with the copy statically linked into the release MesenCore.so and
+# aborts with std::bad_cast before the ROM loads.
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT="${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-1}"
 
 cd "$SESSION_WORK"
 exec xvfb-run -a "$MESEN_BIN" --testrunner "$ROM" "$LUA_SCRIPT" --timeout="${MESEN_TESTRUNNER_TIMEOUT:-30}" >"$SESSION_ROOT/mesen.stdout.log" 2>"$SESSION_ROOT/mesen.stderr.log"

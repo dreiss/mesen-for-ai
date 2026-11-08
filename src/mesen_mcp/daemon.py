@@ -33,6 +33,8 @@ class McpDaemon:
         self.tool_descriptions = {
             "cdl.start": "CDL collection is continuous in Mesen Lua and cannot be turned on or off; this marks the session's intended coverage window.",
             "cdl.stop": "CDL collection is continuous in Mesen Lua and cannot be turned on or off; this marks the coverage window as no longer active.",
+            "state.save": "Save the emulator state to a file (plus <path>.json with the bridge frame counter). Runs at the next main-CPU instruction if held at a frame boundary, and the session then holds there.",
+            "state.load": "Load a state written by state.save and restore the bridge frame counter. The rendered frame updates only after the next frame runs.",
             "cdl.get": "Read decoded Code/Data Logger bytes from a supported ROM region.",
             "cdl.export": "Export decoded Code/Data Logger bytes and contiguous range summaries for a supported ROM region.",
         }
@@ -69,6 +71,14 @@ class McpDaemon:
             "video.export_frame": (
                 {"session": Field(str, required=True), "path": Field(str, required=True)},
                 self.video_export_frame,
+            ),
+            "state.save": (
+                {"session": Field(str, required=True), "path": Field(str, required=True)},
+                self.state_save,
+            ),
+            "state.load": (
+                {"session": Field(str, required=True), "path": Field(str, required=True)},
+                self.state_load,
             ),
             "cpu.registers": (
                 {"session": Field(str, required=True), "cpuType": Field(str), "state": Field(dict)},
@@ -222,6 +232,12 @@ class McpDaemon:
         return self.sessions.get(args["session"]).client.request(
             "exportFrame", {"path": args["path"]}
         )
+
+    def state_save(self, args: Json) -> Any:
+        return self.sessions.get(args["session"]).client.request("saveState", {"path": args["path"]})
+
+    def state_load(self, args: Json) -> Any:
+        return self.sessions.get(args["session"]).client.request("loadState", {"path": args["path"]})
 
     def cpu_registers(self, args: Json) -> Any:
         session = self.sessions.get(args["session"])
