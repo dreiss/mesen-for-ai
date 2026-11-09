@@ -1091,9 +1091,74 @@ pump_socket = function(timeout)
   end
 end
 
+-- Input log: one line per input poll, recording the buttons the console
+-- actually saw on the logged port after this bridge applied its latch:
+-- "<poll index>\t<comma-separated pressed button names>". Started before the
+-- first frame, poll 0 is the first poll after power-on, which is how Mesen
+-- movies index their input rows.
+local input_log = nil
+
+local function close_input_log()
+  if input_log ~= nil then
+    input_log.file:close()
+    local result = { path = input_log.path, polls = input_log.polls }
+    input_log = nil
+    return result
+  end
+  return nil
+end
+
+function commands.startInputLog(args)
+  args = args or {}
+  local path = assert(args.path, "path is required")
+  close_input_log()
+  input_log = {
+    path = path,
+    file = assert(io.open(path, "w")),
+    port = args.port or 0,
+    subport = args.subport or 0,
+    polls = 0,
+  }
+  return { path = path, port = input_log.port, subport = input_log.subport }
+end
+
+function commands.flushInputLog()
+  if input_log == nil then
+    error("input log is not active")
+  end
+  input_log.file:flush()
+  return { path = input_log.path, polls = input_log.polls }
+end
+
+function commands.stopInputLog()
+  return close_input_log() or { ok = true, note = "input log was not active" }
+end
+
+local shutdown_without_log = commands.shutdown
+function commands.shutdown(...)
+  close_input_log()
+  return shutdown_without_log(...)
+end
+
+local function log_input()
+  local state = emu.getInput(input_log.port, input_log.subport) or {}
+  local pressed = {}
+  for name, value in pairs(state) do
+    if value == true then
+      pressed[#pressed + 1] = name
+    end
+  end
+  table.sort(pressed)
+  input_log.file:write(tostring(input_log.polls), "\t", table.concat(pressed, ","), "\n")
+  input_log.polls = input_log.polls + 1
+end
+
 emu.addEventCallback(function()
   for _, input in pairs(desired_inputs) do
     emu.setInput(input.buttons, input.port, input.subport)
+  end
+  if input_log ~= nil then
+    log_input()
   end
 end, emu.eventType.inputPolled)
 
