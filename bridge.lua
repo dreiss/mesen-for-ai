@@ -1134,6 +1134,26 @@ function commands.stopInputLog()
   return close_input_log() or { ok = true, note = "input log was not active" }
 end
 
+-- Cheats: args.type is an emu.cheatType name (e.g. "snesProActionReplay")
+-- or number, args.code the cheat code. Apply them before the first frame so
+-- a recording matches movie playback, which loads a movie's cheats at
+-- power-on.
+function commands.addCheat(args)
+  args = args or {}
+  local code = assert(args.code, "code is required")
+  local kind = args.type
+  if type(kind) == "string" then
+    kind = assert(emu.cheatType[kind], "unknown cheat type: " .. kind)
+  end
+  emu.addCheat(assert(kind, "type is required"), code)
+  return { ok = true, type = args.type, code = code }
+end
+
+function commands.clearCheats()
+  emu.clearCheats()
+  return { ok = true }
+end
+
 local shutdown_without_log = commands.shutdown
 function commands.shutdown(...)
   close_input_log()
