@@ -1176,7 +1176,10 @@ emu.addEventCallback(function()
   retire_state_callback()
   local completed = process_pending()
   pump_socket()
-  if completed then
+  -- Hold only if nothing is pending: the client may already have sent its
+  -- next runFrames during the pump above, and holding then would leave that
+  -- request waiting forever.
+  if completed and #pending_responses == 0 then
     hold_at_boundary = true
   end
   while hold_at_boundary do
